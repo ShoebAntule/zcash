@@ -100,7 +100,7 @@ From `@noir-wallet/sdk@0.1.9` (installed in `frontend`):
 npm run check:prereqs
 ```
 
-Result: PostgreSQL client (`psql`) not found. Noir testnet extension is a manual check. ZSA tooling was previously `PENDING_SELECTION`.
+Result: PostgreSQL client (`psql`) not found. Noir testnet extension is a manual check.
 
 ### Repository inspection
 
@@ -115,59 +115,21 @@ Result: PostgreSQL client (`psql`) not found. Noir testnet extension is a manual
 - Confirmed `assetBurn` is parsed in the deployed Zebra commit but handling status is unknown (maintainer: "I don't know if it is handled").
 - Confirmed public testnet node is at `dev.zebra.zsa-test.net:443` (HTTPS) and `zsa.methyl.cc` (lightwalletd).
 
-## 7. Remaining installation steps or blockers
+### Manual verification executed
 
-### Blocker: No ZSA tooling is installed on this machine
+- **zkool wallet**: ZSA testnet account created, faucet funded, asset issuance and ZSA holding manually verified in zkool GUI.
+- **WSL2 + Rust + zcash_tx_tool**: Installed and built successfully. The public ZSA node was reachable and the CLI began synchronization. The full CLI scenario was stopped before completion.
+- **Transfer command**: No verified command exists for transferring the existing CHOMP Test 0001 asset.
+- **Noir SDK**: Confirmed `@noir-wallet/sdk@0.1.9` has no ZSA issuance, transfer, or asset methods.
 
-Current machine state:
+## 7. Remaining blockers
 
-- OS: Windows 64-bit
-- WSL: **Not installed**
-- Docker: **Not installed**
-- Rust/Cargo: **Not installed**
-- zkool: **Not installed**
+### Blocker: No verified ZSA transfer command or provider integration
 
-### Required manual steps (do not run silently)
-
-**Option A — zkool wallet (smallest setup, Windows native)**
-
-1. Download `zkool-6.25.0+328.exe` from https://github.com/hhanh00/zkool2/releases/tag/zkool-v6.25.0
-2. Run the installer.
-3. Open zkool → Settings → Database Manager → Create a new database with a name containing `zsa` (e.g., `zsa-testnet`).
-4. Set Server URL to `https://zsa.methyl.cc`.
-5. Create an account.
-6. Use the ZSA testnet faucet at `https://faucet.zsa.methyl.cc` to get tZEC for fees.
-
-**Option B — zcash_tx_tool via WSL2 (for issuance/transfer scripting)**
-
-1. Install WSL2: `wsl.exe --install` (requires administrator, reboot)
-2. In WSL2 (Ubuntu), install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-3. Clone and build:
-   ```bash
-   git clone https://github.com/QED-it/zcash_tx_tool.git
-   cd zcash_tx_tool
-   cargo build --release
-   ```
-4. Run against public testnet:
-   ```bash
-   export ZCASH_NODE_ADDRESS=dev.zebra.zsa-test.net
-   export ZCASH_NODE_PORT=443
-   export ZCASH_NODE_PROTOCOL=https
-   ./target/release/zcash_tx_tool test-orchard-zsa
-   ```
-
-**Option C — zcash_tx_tool via Linux Docker host**
-
-Requires a Linux host with Docker. Docker Desktop on Windows does **not** support `--network host`.
-Use the public ECR image:
-
-```bash
-docker run --pull=always \
-  -e ZCASH_NODE_ADDRESS=dev.zebra.zsa-test.net \
-  -e ZCASH_NODE_PORT=443 \
-  -e ZCASH_NODE_PROTOCOL=https \
-  public.ecr.aws/j7v0v6n9/tx-tool:latest
-```
+- Rust and `zcash_tx_tool` are installed in WSL2, but the full issuance/transfer flow was not completed.
+- No documented, tested CLI invocation exists for transferring the existing CHOMP Test 0001 asset.
+- Noir Wallet SDK 0.1.9 does not expose ZSA APIs.
+- Backend `ZSA_PROVIDER` remains `disabled` and fail-closed. No fake transaction IDs, provider success, recipient proof, or mint success are accepted.
 
 ## 8. Documented Noir compatibility limitations (separated from untested)
 
@@ -185,21 +147,21 @@ docker run --pull=always \
 
 ## 9. What this project does not yet have
 
-- No local ZSA node.
-- No `zcash_tx_tool` binary or source checkout.
-- No `zkool` installation.
-- No issuer credentials or asset definitions.
-- No database schema for ZSA metadata.
-- No backend route or service for ZSA issuance.
+- No verified `zcash_tx_tool` transfer command for CHOMP Test 0001.
+- No real ZSA provider adapter implemented.
+- No backend route that marks an order MINTED without verified payment and asset evidence (guard is implemented).
+- No public endpoint to mark payment confirmed or assets minted.
+- No production-ready ZSA recipient proof.
 
 ## 10. Next action
 
-**Install zkool (Windows native) or set up WSL2 + Rust + zcash_tx_tool manually.**
+**Do not implement or enable a real provider without a documented, tested transfer command.**
 
-Do not proceed to Phase 39 (connecting to ZSA infrastructure) until one of the above tooling paths is installed and you can:
+Required manual steps:
 
-1. Create a ZSA testnet account.
-2. Receive tZEC from the faucet.
-3. Run a documented `zcash_tx_tool` scenario or zkool issuance flow against the public ZSA testnet.
+1. Complete the `zcash_tx_tool` issuance/transfer scenario in WSL2 against the public ZSA testnet.
+2. Document the exact CLI invocation, required wallet state, and expected output for transferring CHOMP Test 0001.
+3. Verify recipient control and on-chain confirmation.
+4. Only then implement the real adapter and change `ZSA_PROVIDER` from `disabled`.
 
-Phase 38 status: **PARTIAL** — research complete, tooling not yet installed.
+Phase 38 status: **PARTIAL** — tooling installed, manual issuance verified, transfer not verified.

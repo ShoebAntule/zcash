@@ -2,13 +2,39 @@ import { Router } from 'express';
 import { createHash, randomUUID } from 'node:crypto';
 import { pool } from './db.js';
 import { toZec } from './money.js';
+import { emitOrderEvent } from './events.js';
+
 export const orders = Router();
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const blockers = [
   'Shielded payment receipt verifier not implemented',
   'ZSA issuance and Noir recipient control not proven',
 ];
+
+export async function expireReservations(db: unknown): Promise<void> {
+  const client = db as {
+    query(sql: string, params?: unknown[]): Promise<{ rowCount: number; rows: unknown[] }>;
+  };
+  const expired = await client.query(
+    `SELECT id FROM mint_orders WHERE status='RESERVED' AND expires_at<now() FOR UPDATE`,
+  );
+  if (expired.rowCount) {
+    const ids = (expired.rows as { id: string }[]).map((r) => r.id);
+    await client.query(
+      `UPDATE assets SET status='AVAILABLE',order_id=NULL WHERE order_id=ANY($1::uuid[])`,
+      [ids],
+    );
+    await client.query(
+      "UPDATE mint_orders SET status='EXPIRED',updated_at=now() WHERE id=ANY($1::uuid[])",
+      [ids],
+    );
+    for (const id of ids) {
+      await emitOrderEvent(id, 'RESERVATION_EXPIRED');
+    }
+  }
+}
 
 orders.get('/readiness', async (_req, res) => {
   let database = false;
@@ -24,6 +50,7 @@ orders.get('/readiness', async (_req, res) => {
     blockers: [...(!database ? ['Database unavailable or not migrated'] : []), ...blockers],
   });
 });
+
 orders.get('/config', async (_req, res) => {
   if (!pool) {
     res.status(503).json({ message: 'Set DATABASE_URL and run migrations.' });
@@ -73,7 +100,6 @@ orders.post('/preview-reservations', async (req, res) => {
   const db = await pool.connect();
   try {
     await db.query('BEGIN');
-    // Collection lock serializes reservation and expiry; concurrent requests cannot oversell.
     const c = (await db.query("SELECT * FROM collections WHERE id='chomp-test' FOR UPDATE"))
       .rows[0];
     if (!c) throw new Error('Seed collection first');
@@ -89,6 +115,7 @@ orders.post('/preview-reservations', async (req, res) => {
         res.status(409).json({ message: 'Request conflicts with existing order.' });
         return;
       }
+      await emitOrderEvent(requestId, 'RESERVATION_DUPLICATE');
       res.json({
         id: existing.id,
         status: existing.status,
@@ -97,11 +124,7 @@ orders.post('/preview-reservations', async (req, res) => {
       });
       return;
     }
-    await db.query(`UPDATE assets SET status='AVAILABLE',order_id=NULL WHERE order_id IN
-      (SELECT id FROM mint_orders WHERE status='RESERVED' AND expires_at<now())`);
-    await db.query(
-      "UPDATE mint_orders SET status='EXPIRED',updated_at=now() WHERE status='RESERVED' AND expires_at<now()",
-    );
+    await expireReservations(db);
     const selected = await db.query(
       "SELECT id FROM assets WHERE collection_id=$1 AND status='AVAILABLE' ORDER BY serial LIMIT $2 FOR UPDATE",
       [c.id, quantity],
@@ -121,10 +144,7 @@ orders.post('/preview-reservations', async (req, res) => {
       requestId,
       selected.rows.map((r) => r.id),
     ]);
-    await db.query(
-      "INSERT INTO order_events(order_id,event) VALUES($1,'DEVELOPMENT_RESERVATION_CREATED')",
-      [requestId],
-    );
+    await emitOrderEvent(requestId, 'DEVELOPMENT_RESERVATION_CREATED');
     await db.query('COMMIT');
     res.status(201).json({
       id: requestId,
@@ -139,6 +159,7 @@ orders.post('/preview-reservations', async (req, res) => {
     db.release();
   }
 });
+
 orders.get('/orders/:id', async (req, res) => {
   const token = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
   if (!uuid.test(String(req.params.id)) || !/^[0-9a-f]{64}$/.test(token)) {
@@ -166,8 +187,26 @@ orders.get('/orders/:id', async (req, res) => {
     expiresAt: o.expires_at,
   });
 });
+
+// Payment and issuance routes remain intentionally disabled until verified.
 orders.post('/reserve', (_req, res) => res.status(503).json({ code: 'MINT_NOT_READY', blockers }));
 orders.post('/orders/:id/payment', (_req, res) =>
   res.status(503).json({ code: 'MINT_NOT_READY', blockers }),
 );
+
+interface MintableOrder {
+  payment_txid?: string;
+  asset_identifier?: string;
+}
+
+// Guard: a real implementation must never set MINTED without both payment and asset evidence.
+export function assertMintable(order: MintableOrder): void {
+  if (!order.payment_txid) {
+    throw new Error('Cannot mint: payment not verified.');
+  }
+  if (!order.asset_identifier) {
+    throw new Error('Cannot mint: asset evidence missing.');
+  }
+}
+
 export const requestReference = () => randomUUID();

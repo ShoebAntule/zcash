@@ -123,3 +123,39 @@ export async function getTransferStatus(
   }
   return payload;
 }
+
+export interface DryRunTransferRequest {
+  assetIdentifier: string;
+  recipientAddress: string;
+  amount: number;
+}
+
+export interface DryRunResult {
+  mutation: string;
+  variables: Record<string, unknown>;
+  endpoint: string;
+  assetIdentifierSource: string;
+  needsWalletPassword: boolean;
+  needsJwt: boolean;
+  responseFormat: string;
+}
+
+export async function dryRunTransfer(
+  input: DryRunTransferRequest,
+  signal?: AbortSignal,
+): Promise<DryRunResult> {
+  const response = await fetch(`${API_BASE_URL}/api/zsa/dry-run-transfer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    signal,
+    body: JSON.stringify(input),
+  });
+  const payload = (await response.json().catch(() => ({}))) as DryRunResult & {
+    message?: string;
+    code?: string;
+  };
+  if (!response.ok) {
+    throw new Error(payload.message || `Dry-run transfer failed (${response.status})`);
+  }
+  return payload as DryRunResult;
+}

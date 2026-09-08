@@ -33,12 +33,30 @@ export interface TransferAssetInput {
   recipientAddress: string;
 }
 
+export type ZsaProviderCode =
+  'ZSA_PROVIDER_NOT_CONFIGURED' | 'ZSA_TRANSFER_UNAVAILABLE' | 'PROVIDER_ERROR' | 'INVALID_INPUT';
+
 export interface ZsaProviderResult<T> {
   ok: boolean;
   data?: T;
   error?: string;
-  code:
-    'ZSA_PROVIDER_NOT_CONFIGURED' | 'ZSA_TRANSFER_UNAVAILABLE' | 'PROVIDER_ERROR' | 'INVALID_INPUT';
+  code?: ZsaProviderCode;
+}
+
+export interface DryRunTransferInput {
+  assetIdentifier: string;
+  recipientAddress: string;
+  amount: number;
+}
+
+export interface DryRunResult {
+  mutation: string;
+  variables: Record<string, unknown>;
+  endpoint: string;
+  assetIdentifierSource: string;
+  needsWalletPassword: boolean;
+  needsJwt: boolean;
+  responseFormat: string;
 }
 
 export interface ZsaService {
@@ -50,4 +68,5 @@ export interface ZsaService {
     recipientAddress: string,
   ): Promise<ZsaProviderResult<ZsaTransfer | null>>;
   verifyTransfer(transferId: string): Promise<ZsaProviderResult<ZsaTransfer>>;
+  dryRunTransfer(input: DryRunTransferInput): Promise<ZsaProviderResult<DryRunResult>>;
 }

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { pool } from './db.js';
 import { createZsaProvider } from './zsa-providers.js';
 import { loadConfig } from './config.js';
+import { emitOrderEvent } from './events.js';
 
 export const zsa = Router();
 
@@ -64,7 +65,6 @@ zsa.post('/issue', async (req, res) => {
     return;
   }
 
-  // Provider returned a real response; persist it.
   if (result.data) {
     const db = await pool.connect();
     try {
@@ -72,26 +72,27 @@ zsa.post('/issue', async (req, res) => {
       const existing = await db.query('SELECT id FROM zsa_assets WHERE asset_identifier=$1', [
         assetIdentifier,
       ]);
+      let id: string;
       if (existing.rowCount) {
+        id = existing.rows[0].id;
         await db.query(
           'UPDATE zsa_assets SET status=$1, updated_at=now() WHERE asset_identifier=$2',
           [result.data.status, assetIdentifier],
         );
       } else {
+        id = result.data.id || randomUUID();
         await db.query(
           `INSERT INTO zsa_assets(id, asset_identifier, issuance_txid, provider, status)
            VALUES($1,$2,$3,$4,$5)`,
-          [
-            result.data.id,
-            assetIdentifier,
-            result.data.issuanceTxid,
-            result.data.provider,
-            result.data.status,
-          ],
+          [id, assetIdentifier, result.data.issuanceTxid, result.data.provider, result.data.status],
         );
       }
+      await emitOrderEvent(
+        id,
+        result.data.status === 'CONFIRMED' ? 'ZSA_ISSUE_REQUESTED' : 'ZSA_ISSUE_FAILED',
+      );
       await db.query('COMMIT');
-      res.status(201).json(result.data);
+      res.status(201).json({ ...result.data, id });
     } catch (error) {
       await db.query('ROLLBACK');
       console.error('ZSA issue persistence failed', error);
@@ -168,6 +169,9 @@ zsa.post('/transfer', async (req, res) => {
           ],
         );
       }
+      const event =
+        result.data.status === 'CONFIRMED' ? 'ZSA_TRANSFER_CONFIRMED' : 'ZSA_TRANSFER_REQUESTED';
+      await emitOrderEvent(transferId, event);
       await db.query('COMMIT');
       res.status(202).json({ ...result.data, id: transferId, idempotent: !!existing.rowCount });
     } catch (error) {
@@ -214,4 +218,36 @@ zsa.get('/transfer/:id', async (req, res) => {
   }
 
   res.json(result.data ?? { id, status: row.status });
+});
+
+zsa.post('/dry-run-transfer', async (req, res) => {
+  const assetIdentifier = String(req.body?.assetIdentifier ?? '');
+  const recipientAddress = String(req.body?.recipientAddress ?? '');
+  const amount = Number(req.body?.amount ?? 0);
+  try {
+    assertAssetIdentifier(assetIdentifier);
+    assertRecipientAddress(recipientAddress);
+  } catch (e) {
+    res.status(400).json({ message: e instanceof Error ? e.message : 'Invalid input.' });
+    return;
+  }
+  if (!Number.isInteger(amount) || amount < 1) {
+    res.status(400).json({ message: 'Amount must be a positive integer.' });
+    return;
+  }
+
+  const result = await provider.dryRunTransfer({
+    assetIdentifier,
+    recipientAddress,
+    amount,
+  });
+  if (!result.ok) {
+    const status = result.code === 'ZSA_PROVIDER_NOT_CONFIGURED' ? 503 : 501;
+    res.status(status).json({
+      message: result.error,
+      code: result.code,
+    });
+    return;
+  }
+  res.status(200).json(result.data);
 });
