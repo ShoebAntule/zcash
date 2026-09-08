@@ -1,0 +1,35 @@
+{
+  "part": 4,
+  "phases": "25-37",
+  "added": [
+    "backend/src/config.ts",
+    "backend/src/validation.ts",
+    "backend/src/validation.test.ts",
+    "backend/src/zcashRpc.ts",
+    "frontend/src/components/TestPaymentPanel.tsx",
+    "frontend/src/components/TransactionStatus.tsx",
+    "frontend/src/hooks/useZecPaymentPoc.ts",
+    "frontend/src/services/api.ts",
+    "frontend/src/types/wallet.ts",
+    "frontend/src/utils/payment.ts",
+    "frontend/src/utils/payment.test.ts",
+    "scripts/setup-test-recipient.mjs",
+    "scripts/dev.mjs",
+    "docs/zec-payment-poc.md",
+    "docs/zec-payment-poc-test-results.md",
+    "docs/part4-completion.md"
+  ],
+  "updated": [
+    "package.json",
+    "backend/package.json",
+    "backend/.env.example",
+    "backend/src/index.ts",
+    "frontend/.env.example",
+    "frontend/src/App.tsx",
+    "frontend/src/components/WalletDiagnostic.tsx",
+    "frontend/src/index.css",
+    "frontend/src/services/noir.ts",
+    "README.md"
+  ],
+  "removed": []
+}
